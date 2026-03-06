@@ -75,11 +75,27 @@ class Blackbird(Sequence):
 
     @staticmethod
     def _normalize_time(raw_time):
-        if raw_time.max() > 1e14:
-            return raw_time / 1e9
-        if raw_time.max() > 1e11:
-            return raw_time / 1e6
-        return raw_time
+        raw_time = np.asarray(raw_time, dtype=np.float64)
+        if raw_time.size <= 1:
+            return raw_time
+
+        # Decide the input unit by checking the median delta between samples.
+        # Typical IMU rates are around 50-1000Hz, i.e. dt in [1e-3, 2e-2] sec.
+        # We support seconds / milliseconds / microseconds / nanoseconds.
+        med_dt = np.median(np.diff(raw_time))
+        if med_dt <= 0:
+            return raw_time
+
+        sec_dt = [
+            med_dt,         # already seconds
+            med_dt / 1e3,   # milliseconds
+            med_dt / 1e6,   # microseconds
+            med_dt / 1e9,   # nanoseconds
+        ]
+        scales = [1.0, 1e3, 1e6, 1e9]
+        target_dt = 1e-2
+        best_idx = int(np.argmin([abs(np.log10(max(dt, 1e-12) / target_dt)) for dt in sec_dt]))
+        return raw_time / scales[best_idx]
 
     @staticmethod
     def _parse_imu_header(file_path):

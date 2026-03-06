@@ -47,12 +47,15 @@ def train(network, loader, confs, epoch, optimizer):
             pred_cov_rot += loss_state['pred_cov_rot'].mean().item()
             pred_cov_vel += loss_state['pred_cov_vel'].mean().item()
             t_range.set_description(f'training epoch: %03d, losses: %.06f, position, %.06f rotation %.06f, pred_rot %.06f, pred_cov%.06f'%(epoch, \
-                                    loss_state['loss'], (pos_losses/(i+1)), (rot_losses/(i+1)), \
-                                    loss_state['pred_cov_rot'], loss_state['pred_cov_pos']))
+                                    # loss_state['loss'], (pos_losses/(i+1)), (rot_losses/(i+1)), \
+                                    # loss_state['pred_cov_rot'], loss_state['pred_cov_pos']))
+                                    loss_state['loss'].item(), (pos_losses/(i+1)), (rot_losses/(i+1)), \
+                                    loss_state['pred_cov_rot'].item(), loss_state['pred_cov_pos'].item()))
         
         else:
             t_range.set_description(f'training epoch: %03d, losses: %.06f, position, %.06f rotation %.06f, velocity %.06f'%(epoch, \
-                                    loss_state['loss'], (pos_losses/(i+1)), (rot_losses/(i+1)), loss_state['vel']))
+                                    # loss_state['loss'], (pos_losses/(i+1)), (rot_losses/(i+1)), loss_state['vel']))
+                                    loss_state['loss'].item(), (pos_losses/(i+1)), (rot_losses/(i+1)), loss_state['vel'].item()))
 
         t_range.refresh()
         optimizer.zero_grad()
