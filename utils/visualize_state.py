@@ -6,6 +6,12 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 
 
+def _unwrap_euler_deg(rot):
+    """Convert SO3 rotations to unwrapped Euler angles in degrees."""
+    euler_rad = pp.SO3(rot).euler().detach().cpu().numpy()
+    return np.rad2deg(np.unwrap(euler_rad, axis=0))
+
+
 def visualize_state_error(save_prefix, relative_outstate, relative_infstate, \
                             save_folder=None, mask=None, file_name="state_error_compare.png"):
     if mask is None:
@@ -51,8 +57,8 @@ def visualize_state_error(save_prefix, relative_outstate, relative_infstate, \
 
 def visualize_rotations(save_prefix, gt_rot, out_rot, inf_rot = None,save_folder=None):
    
-    gt_euler = 180./np.pi* pp.SO3(gt_rot).euler()
-    outstate_euler = 180./np.pi* pp.SO3(out_rot).euler()
+    gt_euler = _unwrap_euler_deg(gt_rot)
+    outstate_euler = _unwrap_euler_deg(out_rot)
     
     legend_list = ["roll","pitch", "yaw"]
     fig, axs = plt.subplots(3,)
@@ -64,7 +70,7 @@ def visualize_rotations(save_prefix, gt_rot, out_rot, inf_rot = None,save_folder
         axs[i].grid(True)
     
     if inf_rot is not None:
-        infstate_euler = 180./np.pi* pp.SO3(inf_rot).euler()
+        infstate_euler = _unwrap_euler_deg(inf_rot)
         print(infstate_euler.shape)
         for i in range(3):
             axs[i].plot(infstate_euler[:,i],color = 'red',linewidth=0.9)
@@ -75,74 +81,101 @@ def visualize_rotations(save_prefix, gt_rot, out_rot, inf_rot = None,save_folder
     plt.show()
 
 
+def _to_numpy_1d(tensor):
+    return tensor.detach().cpu().numpy().reshape(-1)
+
+
+def _compute_axis_limits(*arrays, margin_ratio=0.05):
+    values = np.concatenate([np.asarray(arr).reshape(-1) for arr in arrays])
+    min_v = np.min(values)
+    max_v = np.max(values)
+    span = max(max_v - min_v, 1e-6)
+    margin = span * margin_ratio
+    return min_v - margin, max_v + margin
+
+
+def _plot_trajectory_projection(save_path, raw_x, raw_y, air_x, air_y, gt_x, gt_y, xlabel, ylabel):
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5), dpi=300)
+
+    # Full-scale trajectory view.
+    axes[0].plot(raw_x, raw_y, label="Raw", linewidth=1.2)
+    axes[0].plot(air_x, air_y, label="AirIMU", linewidth=1.2)
+    axes[0].plot(gt_x, gt_y, label="Ground Truth", linewidth=1.2)
+    axes[0].set_title("Full scale")
+    axes[0].set_xlabel(xlabel)
+    axes[0].set_ylabel(ylabel)
+    axes[0].grid(True)
+    axes[0].set_aspect('equal', adjustable='box')
+    axes[0].legend()
+
+    # Zoomed view focused on AirIMU and GT overlap.
+    axes[1].plot(raw_x, raw_y, label="Raw", linewidth=1.2, alpha=0.35)
+    axes[1].plot(air_x, air_y, label="AirIMU", linewidth=1.2)
+    axes[1].plot(gt_x, gt_y, label="Ground Truth", linewidth=1.2)
+    axes[1].set_title("Zoomed (AirIMU + GT region)")
+    axes[1].set_xlabel(xlabel)
+    axes[1].set_ylabel(ylabel)
+    axes[1].grid(True)
+    x_lim = _compute_axis_limits(air_x, gt_x)
+    y_lim = _compute_axis_limits(air_y, gt_y)
+    axes[1].set_xlim(*x_lim)
+    axes[1].set_ylim(*y_lim)
+    axes[1].set_aspect('equal', adjustable='box')
+
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=300)
+    plt.close()
+
+
 def visualize_trajectory(save_prefix, save_folder, outstate, infstate):
-    gt_x, gt_y, gt_z                = torch.split(outstate["poses_gt"][0].cpu(), 1, dim=1)
-    rawTraj_x, rawTraj_y, rawTraj_z = torch.split(outstate["poses"][0].cpu(), 1, dim=1)
-    airTraj_x, airTraj_y, airTraj_z = torch.split(infstate["poses"][0].cpu(), 1, dim=1)
-    
-    fig, ax = plt.subplots()
-    ax.plot(rawTraj_x, rawTraj_y, label="Raw")
-    ax.plot(airTraj_x, airTraj_y, label="AirIMU")
-    ax.plot(gt_x     , gt_y     , label="Ground Truth")
-    
-    ax.set_xlabel('X axis')
-    ax.set_ylabel('Y axis')
-    ax.legend()
-    ax.set_aspect('equal', adjustable='box')
-    
-    plt.savefig(os.path.join(save_folder, save_prefix+ "_trajectory_xy.png"), dpi = 300)
-    plt.close()
-    
-    ###########################################################
-    
-    fig, ax = plt.subplots()
-    ax.plot(rawTraj_x, rawTraj_z, label="Raw")
-    ax.plot(airTraj_x, airTraj_z, label="AirIMU")
-    ax.plot(gt_x     , gt_z     , label="Ground Truth")
-    
-    ax.set_xlabel('X axis')
-    ax.set_ylabel('Z axis')
-    ax.legend()
-    ax.set_aspect('equal', adjustable='box')
-    plt.savefig(os.path.join(save_folder, save_prefix+ "_trajectory_xz.png"), dpi = 300)
-    plt.close()
-    
-    ###########################################################
-    
-    fig, ax = plt.subplots()
-    ax.plot(rawTraj_y, rawTraj_z, label="Raw")
-    ax.plot(airTraj_y, airTraj_z, label="AirIMU")
-    ax.plot(gt_y     , gt_z     , label="Ground Truth")
-    
-    ax.set_xlabel('Y axis')
-    ax.set_ylabel('Z axis')
-    ax.legend()
-    ax.set_aspect('equal', adjustable='box')
-    plt.savefig(os.path.join(save_folder, save_prefix+ "_trajectory_yz.png"), dpi = 300)
-    plt.close()
-    
-    ###########################################################
-    
-    fig = plt.figure()
+    gt_x, gt_y, gt_z = torch.split(outstate["poses_gt"][0].cpu(), 1, dim=1)
+    raw_x, raw_y, raw_z = torch.split(outstate["poses"][0].cpu(), 1, dim=1)
+    air_x, air_y, air_z = torch.split(infstate["poses"][0].cpu(), 1, dim=1)
+
+    gt_x, gt_y, gt_z = _to_numpy_1d(gt_x), _to_numpy_1d(gt_y), _to_numpy_1d(gt_z)
+    raw_x, raw_y, raw_z = _to_numpy_1d(raw_x), _to_numpy_1d(raw_y), _to_numpy_1d(raw_z)
+    air_x, air_y, air_z = _to_numpy_1d(air_x), _to_numpy_1d(air_y), _to_numpy_1d(air_z)
+
+    _plot_trajectory_projection(
+        os.path.join(save_folder, save_prefix + "_trajectory_xy.png"),
+        raw_x, raw_y, air_x, air_y, gt_x, gt_y,
+        "X axis", "Y axis"
+    )
+
+    _plot_trajectory_projection(
+        os.path.join(save_folder, save_prefix + "_trajectory_xz.png"),
+        raw_x, raw_z, air_x, air_z, gt_x, gt_z,
+        "X axis", "Z axis"
+    )
+
+    _plot_trajectory_projection(
+        os.path.join(save_folder, save_prefix + "_trajectory_yz.png"),
+        raw_y, raw_z, air_y, air_z, gt_y, gt_z,
+        "Y axis", "Z axis"
+    )
+
+    fig = plt.figure(dpi=300)
     ax = fig.add_subplot(111, projection='3d')
-    
-    elevation_angle = 20  # Change the elevation angle (view from above/below)
-    azimuthal_angle = 30  # Change the azimuthal angle (rotate around z-axis)
+    ax.view_init(20, 30)
 
-    ax.view_init(elevation_angle, azimuthal_angle)  # Set the view
+    ax.plot(raw_x, raw_y, raw_z, label="Raw", linewidth=1.2, alpha=0.35)
+    ax.plot(air_x, air_y, air_z, label="AirIMU", linewidth=1.2)
+    ax.plot(gt_x, gt_y, gt_z, label="Ground Truth", linewidth=1.2)
 
-    # Plotting the ground truth and inferred poses
-    ax.plot(rawTraj_x, rawTraj_y, rawTraj_z, label="Raw")
-    ax.plot(airTraj_x, airTraj_y, airTraj_z, label="AirIMU")
-    ax.plot(gt_x     , gt_y     , gt_z     , label="Ground Truth")
-
-    # Adding labels
     ax.set_xlabel('X axis')
     ax.set_ylabel('Y axis')
     ax.set_zlabel('Z axis')
+
+    x_lim = _compute_axis_limits(air_x, gt_x)
+    y_lim = _compute_axis_limits(air_y, gt_y)
+    z_lim = _compute_axis_limits(air_z, gt_z)
+    ax.set_xlim(*x_lim)
+    ax.set_ylim(*y_lim)
+    ax.set_zlim(*z_lim)
     ax.legend()
 
-    plt.savefig(os.path.join(save_folder, save_prefix+ "_trajectory_3d.png"), dpi = 300)
+    plt.tight_layout()
+    plt.savefig(os.path.join(save_folder, save_prefix + "_trajectory_3d.png"), dpi=300)
     plt.close()
 
 
@@ -180,4 +213,3 @@ def plot_boxes(folder, input_data, metrics, show_metrics):
     
     plt.savefig(os.path.join(folder, "Metrics.png"), dpi = 300)
     plt.close()
-
