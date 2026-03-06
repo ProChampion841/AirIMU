@@ -1,4 +1,3 @@
-import csv
 import os
 
 import numpy as np
@@ -10,13 +9,12 @@ from .dataset import Sequence
 
 
 class Blackbird(Sequence):
-    """Loader for Blackbird-style sequences.
+    """Loader for Blackbird dataset sequences.
 
     Expected per-sequence files:
-      - imu_data.csv
-      - groundTruthPoses.csv
-
-    The loader tries to auto-detect common column names used by Blackbird exports.
+      - imu_data.csv with header:
+        # timestamp, acc_x, acc_y, acc_z, gyro_x, gyro_y, gyro_z
+      - groundTruthPoses.csv without header
     """
 
     def __init__(self, data_root, data_name, intepolate=True, calib=False, glob_coord=False, **kwargs):
@@ -37,11 +35,11 @@ class Blackbird(Sequence):
             idx_end_imu = np.searchsorted(self.data["time"], t_end, "right")
             idx_end_gt = np.searchsorted(self.data["gt_time"], t_end, "right")
 
-            for k in ["gt_time", "pos", "quat", "velocity"]:
-                self.data[k] = self.data[k][idx_start_gt:idx_end_gt]
+            for key in ["gt_time", "pos", "quat", "velocity"]:
+                self.data[key] = self.data[key][idx_start_gt:idx_end_gt]
 
-            for k in ["time", "acc", "gyro"]:
-                self.data[k] = self.data[k][idx_start_imu:idx_end_imu]
+            for key in ["time", "acc", "gyro"]:
+                self.data[key] = self.data[key][idx_start_imu:idx_end_imu]
 
             self.data["gt_orientation"] = self.interp_rot(self.data["time"], self.data["gt_time"], self.data["quat"])
             self.data["gt_translation"] = self.interp_xyz(self.data["time"], self.data["gt_time"], self.data["pos"])
@@ -76,66 +74,70 @@ class Blackbird(Sequence):
         return self.data["time"].shape[0]
 
     @staticmethod
+    def _normalize_time(raw_time):
+        if raw_time.max() > 1e14:
+            return raw_time / 1e9
+        if raw_time.max() > 1e11:
+            return raw_time / 1e6
+        return raw_time
+
+    @staticmethod
+    def _parse_imu_header(file_path):
+        with open(file_path, "r", encoding="utf-8") as f:
+            first_line = f.readline().strip()
+
+        if first_line.startswith("#"):
+            header = first_line[1:]
+        else:
+            header = first_line
+
+        headers = [h.strip().lower() for h in header.split(",")]
+        return headers
+
+    @staticmethod
     def _find_idx(headers, aliases):
-        lowered = [h.strip().lower() for h in headers]
         for alias in aliases:
-            if alias in lowered:
-                return lowered.index(alias)
+            if alias in headers:
+                return headers.index(alias)
         raise ValueError(f"Cannot find any of aliases {aliases} in header: {headers}")
 
-    def _load_csv(self, file_path):
-        with open(file_path, "r", newline="") as f:
-            reader = csv.reader(f)
-            headers = next(reader)
-            rows = [[float(v) for v in row] for row in reader if len(row) > 0]
-        return headers, np.asarray(rows, dtype=np.float64)
-
     def load_imu(self, folder):
-        headers, data = self._load_csv(os.path.join(folder, "imu_data.csv"))
+        imu_path = os.path.join(folder, "imu_data.csv")
+        headers = self._parse_imu_header(imu_path)
 
-        t_idx = self._find_idx(headers, ["timestamp", "t", "time", "timestamp(ns)", "timestamp_us"])
+        data = np.loadtxt(imu_path, delimiter=",", comments="#", dtype=np.float64)
+        if data.ndim == 1:
+            data = data[None, :]
 
-        gx_idx = self._find_idx(headers, ["wx", "gyro_x", "gyr_x", "angular_velocity_x", "w_x"])
-        gy_idx = self._find_idx(headers, ["wy", "gyro_y", "gyr_y", "angular_velocity_y", "w_y"])
-        gz_idx = self._find_idx(headers, ["wz", "gyro_z", "gyr_z", "angular_velocity_z", "w_z"])
+        t_idx = self._find_idx(headers, ["timestamp", "time", "t"])
+        ax_idx = self._find_idx(headers, ["acc_x", "ax", "a_x"])
+        ay_idx = self._find_idx(headers, ["acc_y", "ay", "a_y"])
+        az_idx = self._find_idx(headers, ["acc_z", "az", "a_z"])
+        gx_idx = self._find_idx(headers, ["gyro_x", "wx", "gyr_x", "w_x"])
+        gy_idx = self._find_idx(headers, ["gyro_y", "wy", "gyr_y", "w_y"])
+        gz_idx = self._find_idx(headers, ["gyro_z", "wz", "gyr_z", "w_z"])
 
-        ax_idx = self._find_idx(headers, ["ax", "acc_x", "linear_acceleration_x", "a_x"])
-        ay_idx = self._find_idx(headers, ["ay", "acc_y", "linear_acceleration_y", "a_y"])
-        az_idx = self._find_idx(headers, ["az", "acc_z", "linear_acceleration_z", "a_z"])
-
-        raw_time = data[:, t_idx]
-        # Normalize to seconds if timestamp appears in ns/us.
-        if raw_time.max() > 1e14:
-            raw_time = raw_time / 1e9
-        elif raw_time.max() > 1e11:
-            raw_time = raw_time / 1e6
+        raw_time = self._normalize_time(data[:, t_idx])
 
         self.data["time"] = raw_time
-        self.data["gyro"] = data[:, [gx_idx, gy_idx, gz_idx]]
         self.data["acc"] = data[:, [ax_idx, ay_idx, az_idx]]
+        self.data["gyro"] = data[:, [gx_idx, gy_idx, gz_idx]]
 
     def load_gt(self, folder):
-        headers, data = self._load_csv(os.path.join(folder, "groundTruthPoses.csv"))
+        gt_path = os.path.join(folder, "groundTruthPoses.csv")
+        data = np.loadtxt(gt_path, delimiter=",", dtype=np.float64)
+        if data.ndim == 1:
+            data = data[None, :]
 
-        t_idx = self._find_idx(headers, ["timestamp", "t", "time", "timestamp(ns)", "timestamp_us"])
+        # Blackbird groundTruthPoses.csv has no header. Use standard 8-column layout:
+        # timestamp, x, y, z, qw, qx, qy, qz
+        if data.shape[1] < 8:
+            raise ValueError(f"Expected at least 8 columns in {gt_path}, got {data.shape[1]}.")
 
-        px_idx = self._find_idx(headers, ["x", "px", "position_x", "p_x"])
-        py_idx = self._find_idx(headers, ["y", "py", "position_y", "p_y"])
-        pz_idx = self._find_idx(headers, ["z", "pz", "position_z", "p_z"])
+        raw_time = self._normalize_time(data[:, 0])
+        pos = data[:, 1:4]
+        quat_wxyz = data[:, 4:8]
 
-        qx_idx = self._find_idx(headers, ["qx", "quat_x", "orientation_x"])
-        qy_idx = self._find_idx(headers, ["qy", "quat_y", "orientation_y"])
-        qz_idx = self._find_idx(headers, ["qz", "quat_z", "orientation_z"])
-        qw_idx = self._find_idx(headers, ["qw", "quat_w", "orientation_w"])
-        quat = data[:, [qw_idx, qx_idx, qy_idx, qz_idx]]
-
-        raw_time = data[:, t_idx]
-        if raw_time.max() > 1e14:
-            raw_time = raw_time / 1e9
-        elif raw_time.max() > 1e11:
-            raw_time = raw_time / 1e6
-
-        pos = data[:, [px_idx, py_idx, pz_idx]]
         vel = np.zeros_like(pos)
         delta_t = np.maximum(np.diff(raw_time), 1e-6)
         vel[1:] = (pos[1:] - pos[:-1]) / delta_t[:, None]
@@ -144,7 +146,7 @@ class Blackbird(Sequence):
 
         self.data["gt_time"] = raw_time
         self.data["pos"] = pos
-        self.data["quat"] = quat
+        self.data["quat"] = quat_wxyz
         self.data["velocity"] = vel
 
     def interp_rot(self, time, gt_time, quat):
