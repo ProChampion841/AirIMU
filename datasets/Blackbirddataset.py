@@ -12,14 +12,18 @@ class Blackbird(Sequence):
     """Loader for Blackbird dataset sequences.
 
     Expected per-sequence files:
-      - imu_data.csv with header:
-        # timestamp, acc_x, acc_y, acc_z, gyro_x, gyro_y, gyro_z
-      - groundTruthPoses.csv without header
+      - imu_data.csv with columns for timestamp + (acc, gyro)
+      - groundTruthPoses.csv with timestamp, position, quaternion
+
+    Notes:
+      - Supports CSVs with or without a header row.
+      - Supports headers that start with '#'.
     """
 
-    def __init__(self, data_root, data_name, intepolate=True, calib=False, glob_coord=False, **kwargs):
+    def __init__(self, data_root, data_name, intepolate=True, calib=False, glob_coord=False, quat_order="wxyz", **kwargs):
         super(Blackbird, self).__init__()
         self.data = {}
+        self.quat_order = str(quat_order).lower()
 
         data_path = os.path.join(data_root, data_name)
         self.load_imu(data_path)
@@ -80,8 +84,6 @@ class Blackbird(Sequence):
             return raw_time
 
         # Decide the input unit by checking the median delta between samples.
-        # Typical IMU rates are around 50-1000Hz, i.e. dt in [1e-3, 2e-2] sec.
-        # We support seconds / milliseconds / microseconds / nanoseconds.
         med_dt = np.median(np.diff(raw_time))
         if med_dt <= 0:
             return raw_time
@@ -98,61 +100,121 @@ class Blackbird(Sequence):
         return raw_time / scales[best_idx]
 
     @staticmethod
-    def _parse_imu_header(file_path):
-        with open(file_path, "r", encoding="utf-8") as f:
-            first_line = f.readline().strip()
-
-        if first_line.startswith("#"):
-            header = first_line[1:]
-        else:
-            header = first_line
-
-        headers = [h.strip().lower() for h in header.split(",")]
-        return headers
-
-    @staticmethod
     def _find_idx(headers, aliases):
         for alias in aliases:
             if alias in headers:
                 return headers.index(alias)
         raise ValueError(f"Cannot find any of aliases {aliases} in header: {headers}")
 
-    def load_imu(self, folder):
-        imu_path = os.path.join(folder, "imu_data.csv")
-        headers = self._parse_imu_header(imu_path)
+    @staticmethod
+    def _is_numeric_row(tokens):
+        if not tokens:
+            return False
+        try:
+            [float(tok) for tok in tokens]
+            return True
+        except ValueError:
+            return False
 
-        data = np.loadtxt(imu_path, delimiter=",", comments="#", dtype=np.float64)
+    @classmethod
+    def _load_csv_with_optional_header(cls, file_path):
+        with open(file_path, "r", encoding="utf-8") as f:
+            first_line = f.readline().strip()
+
+        first_line_clean = first_line[1:] if first_line.startswith("#") else first_line
+        first_tokens = [tok.strip() for tok in first_line_clean.split(",") if tok.strip() != ""]
+        has_header = not cls._is_numeric_row(first_tokens)
+
+        headers = None
+        if has_header:
+            headers = [h.strip().lower() for h in first_tokens]
+            data = np.loadtxt(file_path, delimiter=",", comments="#", skiprows=1, dtype=np.float64)
+        else:
+            data = np.loadtxt(file_path, delimiter=",", comments="#", dtype=np.float64)
+
         if data.ndim == 1:
             data = data[None, :]
 
-        t_idx = self._find_idx(headers, ["timestamp", "time", "t"])
-        ax_idx = self._find_idx(headers, ["acc_x", "ax", "a_x"])
-        ay_idx = self._find_idx(headers, ["acc_y", "ay", "a_y"])
-        az_idx = self._find_idx(headers, ["acc_z", "az", "a_z"])
-        gx_idx = self._find_idx(headers, ["gyro_x", "wx", "gyr_x", "w_x"])
-        gy_idx = self._find_idx(headers, ["gyro_y", "wy", "gyr_y", "w_y"])
-        gz_idx = self._find_idx(headers, ["gyro_z", "wz", "gyr_z", "w_z"])
+        return headers, data
+
+    @staticmethod
+    def _sort_and_unique_time(time_arr, *value_arrs):
+        order = np.argsort(time_arr)
+        time_sorted = np.asarray(time_arr)[order]
+        values_sorted = [np.asarray(arr)[order] for arr in value_arrs]
+
+        # Keep strictly increasing timestamps.
+        keep = np.ones_like(time_sorted, dtype=bool)
+        keep[1:] = np.diff(time_sorted) > 0
+        time_sorted = time_sorted[keep]
+        values_sorted = [arr[keep] for arr in values_sorted]
+
+        return (time_sorted, *values_sorted)
+
+    def load_imu(self, folder):
+        imu_path = os.path.join(folder, "imu_data.csv")
+        headers, data = self._load_csv_with_optional_header(imu_path)
+
+        if headers is None:
+            if data.shape[1] < 7:
+                raise ValueError(f"Expected at least 7 columns in {imu_path}, got {data.shape[1]}.")
+            t_idx, ax_idx, ay_idx, az_idx, gx_idx, gy_idx, gz_idx = 0, 1, 2, 3, 4, 5, 6
+        else:
+            t_idx = self._find_idx(headers, ["timestamp", "time", "t"])
+            ax_idx = self._find_idx(headers, ["acc_x", "ax", "a_x"])
+            ay_idx = self._find_idx(headers, ["acc_y", "ay", "a_y"])
+            az_idx = self._find_idx(headers, ["acc_z", "az", "a_z"])
+            gx_idx = self._find_idx(headers, ["gyro_x", "wx", "gyr_x", "w_x"])
+            gy_idx = self._find_idx(headers, ["gyro_y", "wy", "gyr_y", "w_y"])
+            gz_idx = self._find_idx(headers, ["gyro_z", "wz", "gyr_z", "w_z"])
 
         raw_time = self._normalize_time(data[:, t_idx])
+        acc = data[:, [ax_idx, ay_idx, az_idx]]
+        gyro = data[:, [gx_idx, gy_idx, gz_idx]]
+
+        raw_time, acc, gyro = self._sort_and_unique_time(raw_time, acc, gyro)
 
         self.data["time"] = raw_time
-        self.data["acc"] = data[:, [ax_idx, ay_idx, az_idx]]
-        self.data["gyro"] = data[:, [gx_idx, gy_idx, gz_idx]]
+        self.data["acc"] = acc
+        self.data["gyro"] = gyro
 
     def load_gt(self, folder):
         gt_path = os.path.join(folder, "groundTruthPoses.csv")
-        data = np.loadtxt(gt_path, delimiter=",", dtype=np.float64)
-        if data.ndim == 1:
-            data = data[None, :]
+        headers, data = self._load_csv_with_optional_header(gt_path)
 
-        # Blackbird groundTruthPoses.csv has no header. Use standard 8-column layout:
-        # timestamp, x, y, z, qw, qx, qy, qz
         if data.shape[1] < 8:
             raise ValueError(f"Expected at least 8 columns in {gt_path}, got {data.shape[1]}.")
 
-        raw_time = self._normalize_time(data[:, 0])
-        pos = data[:, 1:4]
-        quat_wxyz = data[:, 4:8]
+        if headers is None:
+            t_idx = 0
+            x_idx, y_idx, z_idx = 1, 2, 3
+            if self.quat_order == "xyzw":
+                qx_idx, qy_idx, qz_idx, qw_idx = 4, 5, 6, 7
+            else:
+                qw_idx, qx_idx, qy_idx, qz_idx = 4, 5, 6, 7
+        else:
+            t_idx = self._find_idx(headers, ["timestamp", "time", "t"])
+            x_idx = self._find_idx(headers, ["x", "p_x", "pos_x", "position_x"])
+            y_idx = self._find_idx(headers, ["y", "p_y", "pos_y", "position_y"])
+            z_idx = self._find_idx(headers, ["z", "p_z", "pos_z", "position_z"])
+
+            if "qw" in headers:
+                qw_idx = self._find_idx(headers, ["qw", "q_w", "quat_w", "w"])
+                qx_idx = self._find_idx(headers, ["qx", "q_x", "quat_x"])
+                qy_idx = self._find_idx(headers, ["qy", "q_y", "quat_y"])
+                qz_idx = self._find_idx(headers, ["qz", "q_z", "quat_z"])
+            else:
+                # Fallback: some files may expose x/y/z/w style naming.
+                qx_idx = self._find_idx(headers, ["qx", "q_x", "quat_x", "x_q"])
+                qy_idx = self._find_idx(headers, ["qy", "q_y", "quat_y", "y_q"])
+                qz_idx = self._find_idx(headers, ["qz", "q_z", "quat_z", "z_q"])
+                qw_idx = self._find_idx(headers, ["qw", "q_w", "quat_w", "w_q", "w"])
+
+        raw_time = self._normalize_time(data[:, t_idx])
+        pos = data[:, [x_idx, y_idx, z_idx]]
+        quat_wxyz = data[:, [qw_idx, qx_idx, qy_idx, qz_idx]]
+
+        raw_time, pos, quat_wxyz = self._sort_and_unique_time(raw_time, pos, quat_wxyz)
 
         vel = np.zeros_like(pos)
         delta_t = np.maximum(np.diff(raw_time), 1e-6)

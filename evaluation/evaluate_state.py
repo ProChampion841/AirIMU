@@ -190,8 +190,8 @@ if __name__ == '__main__':
                     plot_title="Relative-window integration error vs AirIMU"
                 )
 
-                visualize_trajectory(data_name + "_global", folder, outstate, infstate)
-                visualize_trajectory(data_name + "_relative", folder, relative_outstate, relative_infstate)
+                # visualize_trajectory(data_name + "_global", folder, outstate, infstate)
+                # visualize_trajectory(data_name + "_relative", folder, relative_outstate, relative_infstate)
                 visualize_rotations(data_name,outstate['orientations_gt'][0],outstate['orientations'][0],infstate['orientations'][0],save_folder=folder)
             
         file_path = os.path.join(folder, "loss_result.json")

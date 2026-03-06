@@ -74,6 +74,7 @@ optional arguments:
 To evaluate the model and generate network inference file net_output.pickle, run the following command:
 ```
 python inference.py --config configs/exp/EuRoC/codenet.conf
+python inference.py --config configs/exp/Blackbird/codenet.conf
 ```
 
 <br>
@@ -83,6 +84,8 @@ You can use the evaluation tool to assess your model performance with net_output
 
 ```
 python evaluation/evaluate_state.py --dataconf configs\datasets\BaselineEuroc\Euroc_1000.conf --exp experiments\EuRoC
+python evaluation/evaluate_state.py --dataconf configs\datasets\Blackbird\Blackbird_1000.conf --exp experiments\Blackbird
+
 ```
 
 <br>
