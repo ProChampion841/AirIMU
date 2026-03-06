@@ -53,6 +53,7 @@ Easy way to start the training using the exisiting configuration.
 
 ```
 python train.py --config configs/exp/EuRoC/codenet.conf
+python train.py --config configs/exp/Blackbird/codenet.conf
 ```
 
 More specific option:
