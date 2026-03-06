@@ -168,10 +168,30 @@ if __name__ == '__main__':
                 print("rot_err: ", relative_infstate['rot_dist'].mean())
                 print("vel_err: ", relative_infstate['vel_dist'].mean())
                 
-                visualize_state_error(data_name,outstate,infstate,save_folder=folder,mask=mask,file_name="inte_error_compare.png")
-                visualize_state_error(data_name,relative_outstate,relative_infstate,mask=select_mask,save_folder=folder)
-                # visualize_trajectory(data_name, folder, outstate, infstate)
-                visualize_trajectory(data_name, folder, relative_outstate, relative_infstate)
+                # visualize_state_error(data_name,outstate,infstate,save_folder=folder,mask=mask,file_name="inte_error_compare.png")
+                # visualize_state_error(data_name,relative_outstate,relative_infstate,mask=select_mask,save_folder=folder)
+                # visualize_trajectory(data_name, folder, relative_outstate, relative_infstate)
+                visualize_state_error(
+                    data_name,
+                    outstate,
+                    infstate,
+                    save_folder=folder,
+                    mask=mask,
+                    file_name="global_state_error_compare.png",
+                    plot_title="Global integration error vs AirIMU"
+                )
+                visualize_state_error(
+                    data_name,
+                    relative_outstate,
+                    relative_infstate,
+                    mask=select_mask,
+                    save_folder=folder,
+                    file_name="relative_state_error_compare.png",
+                    plot_title="Relative-window integration error vs AirIMU"
+                )
+
+                visualize_trajectory(data_name + "_global", folder, outstate, infstate)
+                visualize_trajectory(data_name + "_relative", folder, relative_outstate, relative_infstate)
                 visualize_rotations(data_name,outstate['orientations_gt'][0],outstate['orientations'][0],infstate['orientations'][0],save_folder=folder)
             
         file_path = os.path.join(folder, "loss_result.json")

@@ -13,7 +13,7 @@ def _unwrap_euler_deg(rot):
 
 
 def visualize_state_error(save_prefix, relative_outstate, relative_infstate, \
-                            save_folder=None, mask=None, file_name="state_error_compare.png"):
+                            save_folder=None, mask=None, file_name="state_error_compare.png",  plot_title=None):
     if mask is None:
         outstate_pos_err = relative_outstate['pos_dist'][0]
         outstate_vel_err = relative_outstate['vel_dist'][0]
@@ -32,7 +32,7 @@ def visualize_state_error(save_prefix, relative_outstate, relative_infstate, \
         infstate_rot_err = relative_infstate['rot_dist'][0, mask]
     
     fig, axs = plt.subplots(3,)
-    fig.suptitle("Integration error vs AirIMU Integration error")
+    fig.suptitle(plot_title or "Integration error vs AirIMU Integration error")
     
     axs[0].plot(outstate_pos_err,color = 'b',linewidth=1)
     axs[0].plot(infstate_pos_err,color = 'red',linewidth=1)
@@ -53,7 +53,7 @@ def visualize_state_error(save_prefix, relative_outstate, relative_infstate, \
     if save_folder is not None:
         plt.savefig(os.path.join(save_folder, save_prefix + file_name), dpi = 300)
     # plt.show()
-  
+
 
 def _set_2d_equal_aspect(ax, xlim, ylim):
     """Keep one unit on X equal to one unit on Y without changing data bounds."""
