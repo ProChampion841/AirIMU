@@ -52,8 +52,26 @@ def visualize_state_error(save_prefix, relative_outstate, relative_infstate, \
     plt.tight_layout()
     if save_folder is not None:
         plt.savefig(os.path.join(save_folder, save_prefix + file_name), dpi = 300)
-    plt.show()
+    # plt.show()
   
+
+def _set_2d_equal_aspect(ax, xlim, ylim):
+    """Keep one unit on X equal to one unit on Y without changing data bounds."""
+    ax.set_xlim(*xlim)
+    ax.set_ylim(*ylim)
+    ax.set_aspect('equal', adjustable='box')
+
+def _set_3d_equal_aspect(ax, xlim, ylim, zlim):
+    """Use true data spans for 3D aspect so units are consistent without over-padding."""
+    ax.set_xlim(*xlim)
+    ax.set_ylim(*ylim)
+    ax.set_zlim(*zlim)
+
+    x_span = max(float(xlim[1] - xlim[0]), 1e-6)
+    y_span = max(float(ylim[1] - ylim[0]), 1e-6)
+    z_span = max(float(zlim[1] - zlim[0]), 1e-6)
+    ax.set_box_aspect((x_span, y_span, z_span))
+
 
 def visualize_rotations(save_prefix, gt_rot, out_rot, inf_rot = None,save_folder=None):
     gt_euler = _unwrap_euler_deg(gt_rot)
@@ -76,7 +94,7 @@ def visualize_rotations(save_prefix, gt_rot, out_rot, inf_rot = None,save_folder
     plt.tight_layout()
     if save_folder is not None:
         plt.savefig(os.path.join(save_folder, save_prefix+ "_orientation_compare.png"), dpi = 300)
-    plt.show()
+    # plt.show()
 
 
 def _to_numpy_1d(tensor):
@@ -103,8 +121,9 @@ def _plot_trajectory_projection(save_path, raw_x, raw_y, air_x, air_y, gt_x, gt_
     axes[0].set_xlabel(xlabel)
     axes[0].set_ylabel(ylabel)
     axes[0].grid(True)
-    axes[0].set_xlim(*_compute_axis_limits(raw_x, air_x, gt_x))
-    axes[0].set_ylim(*_compute_axis_limits(raw_y, air_y, gt_y))
+    full_xlim = _compute_axis_limits(raw_x, air_x, gt_x)
+    full_ylim = _compute_axis_limits(raw_y, air_y, gt_y)
+    _set_2d_equal_aspect(axes[0], full_xlim, full_ylim)
     axes[0].legend()
 
     # Zoomed view focused on AirIMU and GT overlap.
@@ -115,23 +134,39 @@ def _plot_trajectory_projection(save_path, raw_x, raw_y, air_x, air_y, gt_x, gt_
     axes[1].set_xlabel(xlabel)
     axes[1].set_ylabel(ylabel)
     axes[1].grid(True)
-    axes[1].set_xlim(*_compute_axis_limits(air_x, gt_x))
-    axes[1].set_ylim(*_compute_axis_limits(air_y, gt_y))
+    zoom_xlim = _compute_axis_limits(air_x, gt_x)
+    zoom_ylim = _compute_axis_limits(air_y, gt_y)
+    _set_2d_equal_aspect(axes[1], zoom_xlim, zoom_ylim)
 
     plt.tight_layout()
     plt.savefig(save_path, dpi=300)
     plt.close()
-    
+
+def _truncate_to_common_length(*arrays):
+    """Trim arrays to common prefix length for apples-to-apples plotting."""
+    min_len = min(len(np.asarray(arr).reshape(-1)) for arr in arrays)
+    return [np.asarray(arr).reshape(-1)[:min_len] for arr in arrays], min_len
 
 def visualize_trajectory(save_prefix, save_folder, outstate, infstate):
-    gt_x, gt_y, gt_z = torch.split(outstate["poses_gt"][0].cpu(), 1, dim=1)
+    gt_source = infstate if "poses_gt" in infstate else outstate
+
+    gt_x, gt_y, gt_z = torch.split(gt_source["poses_gt"][0].cpu(), 1, dim=1)
     raw_x, raw_y, raw_z = torch.split(outstate["poses"][0].cpu(), 1, dim=1)
     air_x, air_y, air_z = torch.split(infstate["poses"][0].cpu(), 1, dim=1)
 
     gt_x, gt_y, gt_z = _to_numpy_1d(gt_x), _to_numpy_1d(gt_y), _to_numpy_1d(gt_z)
     raw_x, raw_y, raw_z = _to_numpy_1d(raw_x), _to_numpy_1d(raw_y), _to_numpy_1d(raw_z)
     air_x, air_y, air_z = _to_numpy_1d(air_x), _to_numpy_1d(air_y), _to_numpy_1d(air_z)
+    (raw_x, raw_y, raw_z, air_x, air_y, air_z, gt_x, gt_y, gt_z), common_len = _truncate_to_common_length(
+        raw_x, raw_y, raw_z, air_x, air_y, air_z, gt_x, gt_y, gt_z
+    )
 
+    print(
+        f"[visualize_trajectory] {save_prefix}: using {common_len} synchronized points | "
+        f"Raw x/y/z ranges=({raw_x.min():.2f},{raw_x.max():.2f}) / ({raw_y.min():.2f},{raw_y.max():.2f}) / ({raw_z.min():.2f},{raw_z.max():.2f}) | "
+        f"AirIMU x/y/z ranges=({air_x.min():.2f},{air_x.max():.2f}) / ({air_y.min():.2f},{air_y.max():.2f}) / ({air_z.min():.2f},{air_z.max():.2f}) | "
+        f"GT x/y/z ranges=({gt_x.min():.2f},{gt_x.max():.2f}) / ({gt_y.min():.2f},{gt_y.max():.2f}) / ({gt_z.min():.2f},{gt_z.max():.2f})"
+    )
     _plot_trajectory_projection(
         os.path.join(save_folder, save_prefix + "_trajectory_xy.png"),
         raw_x, raw_y, air_x, air_y, gt_x, gt_y,
@@ -164,14 +199,16 @@ def visualize_trajectory(save_prefix, save_folder, outstate, infstate):
         ax.set_zlabel('Z axis')
 
     ax_full.set_title('3D full scale')
-    ax_full.set_xlim(*_compute_axis_limits(raw_x, air_x, gt_x))
-    ax_full.set_ylim(*_compute_axis_limits(raw_y, air_y, gt_y))
-    ax_full.set_zlim(*_compute_axis_limits(raw_z, air_z, gt_z))
-
+    full_xlim = _compute_axis_limits(raw_x, air_x, gt_x)
+    full_ylim = _compute_axis_limits(raw_y, air_y, gt_y)
+    full_zlim = _compute_axis_limits(raw_z, air_z, gt_z)
+    _set_3d_equal_aspect(ax_full, full_xlim, full_ylim, full_zlim)
+    
     ax_zoom.set_title('3D zoomed (AirIMU + GT)')
-    ax_zoom.set_xlim(*_compute_axis_limits(air_x, gt_x))
-    ax_zoom.set_ylim(*_compute_axis_limits(air_y, gt_y))
-    ax_zoom.set_zlim(*_compute_axis_limits(air_z, gt_z))
+    zoom_xlim = _compute_axis_limits(air_x, gt_x)
+    zoom_ylim = _compute_axis_limits(air_y, gt_y)
+    zoom_zlim = _compute_axis_limits(air_z, gt_z)
+    _set_3d_equal_aspect(ax_zoom, zoom_xlim, zoom_ylim, zoom_zlim)
     ax_zoom.legend()
 
     plt.tight_layout()

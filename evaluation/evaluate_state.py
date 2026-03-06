@@ -84,7 +84,7 @@ if __name__ == '__main__':
                 dataset_inf = SeqInfDataset(data_conf.data_root, data_name, inference_state, device = args.device, name = data_conf.name,duration=args.seqlen, step_size=args.seqlen, drop_last=False, conf = dataset_conf)
                 infloader = Data.DataLoader(dataset=dataset_inf, batch_size=1, 
                                             collate_fn=imu_seq_collate, 
-                                            shuffle=False, drop_last=True)
+                                            shuffle=False, drop_last=False)
 
                 integrator_infstate = pp.module.IMUPreintegrator(
                     init['pos'], init['rot'], init['vel'], gravity = gravity,
@@ -171,7 +171,7 @@ if __name__ == '__main__':
                 visualize_state_error(data_name,outstate,infstate,save_folder=folder,mask=mask,file_name="inte_error_compare.png")
                 visualize_state_error(data_name,relative_outstate,relative_infstate,mask=select_mask,save_folder=folder)
                 visualize_trajectory(data_name, folder, outstate, infstate)
-            visualize_rotations(data_name,outstate['orientations_gt'][0],outstate['orientations'][0],infstate['orientations'][0],save_folder=folder)
+                visualize_rotations(data_name,outstate['orientations_gt'][0],outstate['orientations'][0],infstate['orientations'][0],save_folder=folder)
             
         file_path = os.path.join(folder, "loss_result.json")
         with open(file_path, 'w') as f: 
