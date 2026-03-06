@@ -161,6 +161,15 @@ def visualize_trajectory(save_prefix, save_folder, outstate, infstate):
         raw_x, raw_y, raw_z, air_x, air_y, air_z, gt_x, gt_y, gt_z
     )
 
+    # Match the position-error definition used in training/evaluation losses,
+    # i.e., compare trajectories point-wise in the same reference frame.
+    # We anchor all curves to the first GT point to remove constant offsets.
+    ref_x, ref_y, ref_z = gt_x[0], gt_y[0], gt_z[0]
+    raw_x, raw_y, raw_z = raw_x - ref_x, raw_y - ref_y, raw_z - ref_z
+    air_x, air_y, air_z = air_x - ref_x, air_y - ref_y, air_z - ref_z
+    gt_x, gt_y, gt_z = gt_x - ref_x, gt_y - ref_y, gt_z - ref_z
+    
+    
     print(
         f"[visualize_trajectory] {save_prefix}: using {common_len} synchronized points | "
         f"Raw x/y/z ranges=({raw_x.min():.2f},{raw_x.max():.2f}) / ({raw_y.min():.2f},{raw_y.max():.2f}) / ({raw_z.min():.2f},{raw_z.max():.2f}) | "
