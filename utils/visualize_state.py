@@ -56,10 +56,8 @@ def visualize_state_error(save_prefix, relative_outstate, relative_infstate, \
   
 
 def visualize_rotations(save_prefix, gt_rot, out_rot, inf_rot = None,save_folder=None):
-   
     gt_euler = _unwrap_euler_deg(gt_rot)
     outstate_euler = _unwrap_euler_deg(out_rot)
-    
     legend_list = ["roll","pitch", "yaw"]
     fig, axs = plt.subplots(3,)
     fig.suptitle("integrated orientation")
@@ -95,7 +93,7 @@ def _compute_axis_limits(*arrays, margin_ratio=0.05):
 
 
 def _plot_trajectory_projection(save_path, raw_x, raw_y, air_x, air_y, gt_x, gt_y, xlabel, ylabel):
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5), dpi=300)
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5), dpi=300)
 
     # Full-scale trajectory view.
     axes[0].plot(raw_x, raw_y, label="Raw", linewidth=1.2)
@@ -105,27 +103,25 @@ def _plot_trajectory_projection(save_path, raw_x, raw_y, air_x, air_y, gt_x, gt_
     axes[0].set_xlabel(xlabel)
     axes[0].set_ylabel(ylabel)
     axes[0].grid(True)
-    axes[0].set_aspect('equal', adjustable='box')
+    axes[0].set_xlim(*_compute_axis_limits(raw_x, air_x, gt_x))
+    axes[0].set_ylim(*_compute_axis_limits(raw_y, air_y, gt_y))
     axes[0].legend()
 
     # Zoomed view focused on AirIMU and GT overlap.
-    axes[1].plot(raw_x, raw_y, label="Raw", linewidth=1.2, alpha=0.35)
-    axes[1].plot(air_x, air_y, label="AirIMU", linewidth=1.2)
-    axes[1].plot(gt_x, gt_y, label="Ground Truth", linewidth=1.2)
+    axes[1].plot(raw_x, raw_y, label="Raw", linewidth=1.0, alpha=0.25)
+    axes[1].plot(air_x, air_y, label="AirIMU", linewidth=1.4)
+    axes[1].plot(gt_x, gt_y, label="Ground Truth", linewidth=1.4)
     axes[1].set_title("Zoomed (AirIMU + GT region)")
     axes[1].set_xlabel(xlabel)
     axes[1].set_ylabel(ylabel)
     axes[1].grid(True)
-    x_lim = _compute_axis_limits(air_x, gt_x)
-    y_lim = _compute_axis_limits(air_y, gt_y)
-    axes[1].set_xlim(*x_lim)
-    axes[1].set_ylim(*y_lim)
-    axes[1].set_aspect('equal', adjustable='box')
+    axes[1].set_xlim(*_compute_axis_limits(air_x, gt_x))
+    axes[1].set_ylim(*_compute_axis_limits(air_y, gt_y))
 
     plt.tight_layout()
     plt.savefig(save_path, dpi=300)
     plt.close()
-
+    
 
 def visualize_trajectory(save_prefix, save_folder, outstate, infstate):
     gt_x, gt_y, gt_z = torch.split(outstate["poses_gt"][0].cpu(), 1, dim=1)
@@ -154,25 +150,29 @@ def visualize_trajectory(save_prefix, save_folder, outstate, infstate):
         "Y axis", "Z axis"
     )
 
-    fig = plt.figure(dpi=300)
-    ax = fig.add_subplot(111, projection='3d')
-    ax.view_init(20, 30)
+    fig = plt.figure(figsize=(13, 5), dpi=300)
+    ax_full = fig.add_subplot(121, projection='3d')
+    ax_zoom = fig.add_subplot(122, projection='3d')
 
-    ax.plot(raw_x, raw_y, raw_z, label="Raw", linewidth=1.2, alpha=0.35)
-    ax.plot(air_x, air_y, air_z, label="AirIMU", linewidth=1.2)
-    ax.plot(gt_x, gt_y, gt_z, label="Ground Truth", linewidth=1.2)
+    for ax in (ax_full, ax_zoom):
+        ax.view_init(20, 30)
+        ax.plot(raw_x, raw_y, raw_z, label="Raw", linewidth=1.0, alpha=0.25)
+        ax.plot(air_x, air_y, air_z, label="AirIMU", linewidth=1.4)
+        ax.plot(gt_x, gt_y, gt_z, label="Ground Truth", linewidth=1.4)
+        ax.set_xlabel('X axis')
+        ax.set_ylabel('Y axis')
+        ax.set_zlabel('Z axis')
 
-    ax.set_xlabel('X axis')
-    ax.set_ylabel('Y axis')
-    ax.set_zlabel('Z axis')
+    ax_full.set_title('3D full scale')
+    ax_full.set_xlim(*_compute_axis_limits(raw_x, air_x, gt_x))
+    ax_full.set_ylim(*_compute_axis_limits(raw_y, air_y, gt_y))
+    ax_full.set_zlim(*_compute_axis_limits(raw_z, air_z, gt_z))
 
-    x_lim = _compute_axis_limits(air_x, gt_x)
-    y_lim = _compute_axis_limits(air_y, gt_y)
-    z_lim = _compute_axis_limits(air_z, gt_z)
-    ax.set_xlim(*x_lim)
-    ax.set_ylim(*y_lim)
-    ax.set_zlim(*z_lim)
-    ax.legend()
+    ax_zoom.set_title('3D zoomed (AirIMU + GT)')
+    ax_zoom.set_xlim(*_compute_axis_limits(air_x, gt_x))
+    ax_zoom.set_ylim(*_compute_axis_limits(air_y, gt_y))
+    ax_zoom.set_zlim(*_compute_axis_limits(air_z, gt_z))
+    ax_zoom.legend()
 
     plt.tight_layout()
     plt.savefig(os.path.join(save_folder, save_prefix + "_trajectory_3d.png"), dpi=300)
