@@ -81,7 +81,7 @@ You can use the evaluation tool to assess your model performance with net_output
 > **Note**: Make sure to replace path/to/net_output_directory with the directory path where your network output pickle file is stored.
 
 ```
-python evaluation/evaluate_state.py --dataconf configs/datasets/${DATASET}/${DATASET}.conf --exp path/to/net_output_directory
+python evaluation/evaluate_state.py --dataconf configs\datasets\BaselineEuroc\Euroc_1000.conf --exp experiments\EuRoC
 ```
 
 <br>
